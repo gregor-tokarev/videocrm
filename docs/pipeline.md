@@ -5,7 +5,8 @@ A pipeline turns a folder of raw takes into `edit/final.mp4` with a headless cod
 
 - `Harness::Rushes { tools }`: Rushes' own editing tools ([editing-harness.md](editing-harness.md)),
   served over MCP by `tools` (the app's binary: `rushes edit-tools --footage <dir>`). The
-  agent has no shell. The default.
+  agent cuts and renders only through them; its shell and web tools are for finding,
+  fetching and making material. The default.
 - `Harness::VideoUse { skill_dir }`: the [video-use](https://github.com/browser-use/video-use)
   skill, a prompt plus Python helpers the agent runs through its shell.
 
@@ -15,6 +16,11 @@ and UI-free: the app calls it on a background thread with an event callback and 
 cancellation flag.
 
 ## Phases
+
+A run keeps the harness it started with (`PipelineRun::harness`, set from Settings when the
+run is created): its follow-up phases resume an agent session that knows those tools, so
+changing the setting affects only new edits. Runs stored before the harness was recorded
+take the setting at their next phase and keep it from then on.
 
 Both harnesses have the same rule: never touch the cut before the creator approved the
 plain-English strategy. A headless agent cannot wait for a reply, so the
@@ -99,8 +105,8 @@ for the footage.
 ```text
 # Rushes' tools
 claude -p <prompt> --output-format stream-json --verbose [--resume=<id>] [--model <m>]
-       --permission-mode acceptEdits --tools=Read,Write,Edit,Glob,Grep,TodoWrite
-       --allowedTools=mcp__rushes,Read,Write,Edit,Glob,Grep,TodoWrite
+       --permission-mode acceptEdits --tools=Bash,Read,Write,Edit,Glob,Grep,TodoWrite,WebFetch,WebSearch
+       --allowedTools=mcp__rushes,Bash,Read,Write,Edit,Glob,Grep,TodoWrite,WebFetch,WebSearch
        --mcp-config=<rushes server JSON> --strict-mcp-config
        --append-system-prompt=<rushes-edit instructions>[\n\n<text>] [--max-turns <n>] [extra args]
        (environment: MCP_TOOL_TIMEOUT=3600000)
@@ -115,8 +121,8 @@ claude -p <prompt> --output-format stream-json --verbose [--resume=<id>] [--mode
 - Working directory is the footage folder; stdin is closed; stdout is parsed line by line;
   stderr is streamed as `Stderr` events and its last 20 lines are kept for errors.
 - Nobody can answer a permission prompt in print mode, so anything not allowed is denied
-  (reported as a `PermissionDenied` event). With Rushes' tools the agent only has the file
-  tools and the `rushes` MCP server (`--tools` removes the shell entirely,
+  (reported as a `PermissionDenied` event). With Rushes' tools the agent has the `rushes` MCP
+  server, the shell, the file tools and the web (`--tools` leaves out the rest,
   `--strict-mcp-config` ignores the creator's other MCP servers). `acceptEdits` plus the
   allowed tools above is what video-use needs: shell for ffmpeg and its Python helpers, file tools, the skill
   loader, sub-agents for animations. `bypassPermissions` is never used implicitly; set

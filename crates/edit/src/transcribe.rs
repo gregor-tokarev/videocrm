@@ -74,12 +74,25 @@ pub fn cached(project: &Project, take: &Take) -> Result<Option<Transcript>> {
 /// Outcome per take: `Ok(true)` when it was transcribed now, `Ok(false)` when cached.
 pub type Report = Vec<(String, Result<bool>)>;
 
-/// Transcribes every take that has no current transcript, a few at a time.
-pub fn transcribe_all(project: &Project, options: &Options, on_progress: &(dyn Fn(&str) + Sync)) -> Report {
-    let queue = Mutex::new(project.takes.iter().collect::<Vec<_>>());
+/// Transcribes the takes with sound (all of them, or the ones in `only`) that have no
+/// current transcript, a few at a time.
+pub fn transcribe_all(
+    project: &Project,
+    only: Option<&[String]>,
+    options: &Options,
+    on_progress: &(dyn Fn(&str) + Sync),
+) -> Report {
+    let takes: Vec<&Take> = project
+        .takes
+        .iter()
+        .filter(|take| take.has_sound())
+        .filter(|take| only.is_none_or(|only| only.iter().any(|id| id.trim().eq_ignore_ascii_case(&take.id))))
+        .collect();
+    let workers = PARALLEL.min(takes.len());
+    let queue = Mutex::new(takes);
     let results = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
-        for _ in 0..PARALLEL.min(project.takes.len()) {
+        for _ in 0..workers {
             scope.spawn(|| {
                 loop {
                     let Some(take) = queue.lock().unwrap().pop() else { break };

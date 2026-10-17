@@ -124,7 +124,7 @@ fn footage_is_listed_and_probed() {
 }
 
 #[test]
-fn rushes_tools_replace_the_shell_and_the_skill() {
+fn rushes_tools_replace_the_skill() {
     if !tools_available() {
         return;
     }
@@ -139,8 +139,9 @@ fn rushes_tools_replace_the_shell_and_the_skill() {
     let argv = ws.argv();
     assert!(argv[1].starts_with("Rushes edit request (planning phase)."));
     assert!(argv[1].contains("rushes tools") && !argv[1].contains("SKILL.md"), "{}", argv[1]);
-    assert!(argv.iter().any(|arg| arg == "--tools=Read,Write,Edit,Glob,Grep,TodoWrite"), "{argv:?}");
-    assert!(argv.iter().any(|arg| arg == "--allowedTools=mcp__rushes,Read,Write,Edit,Glob,Grep,TodoWrite"), "{argv:?}");
+    let builtin = "Bash,Read,Write,Edit,Glob,Grep,TodoWrite,WebFetch,WebSearch";
+    assert!(argv.iter().any(|arg| *arg == format!("--tools={builtin}")), "{argv:?}");
+    assert!(argv.iter().any(|arg| *arg == format!("--allowedTools=mcp__rushes,{builtin}")), "{argv:?}");
     assert!(argv.iter().any(|arg| arg == "--strict-mcp-config"), "{argv:?}");
     assert!(!argv.iter().any(|arg| arg.starts_with("--add-dir")), "{argv:?}");
     let config = argv.iter().find_map(|arg| arg.strip_prefix("--mcp-config=")).expect("mcp config");

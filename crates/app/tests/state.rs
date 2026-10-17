@@ -323,6 +323,7 @@ fn ai_edits_and_uploads_change_during_a_lock_without_waiting_and_land_after_it(c
         brief: "Cut it tight.".into(),
         footage_dir: app._dir.path().join("footage"),
         session_id: Some("session".into()),
+        harness: None,
         summary: Some("Keep the second take.".into()),
         output: None,
         error: None,

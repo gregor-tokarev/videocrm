@@ -37,6 +37,13 @@ const LONG_PAUSE: f64 = 3.0;
 const LONG_TIME_SEGMENT: f64 = 20.0;
 /// A still stretch inside a long time segment worth pointing out.
 const STILL_SHOT: f64 = 3.0;
+/// Longest an image may be held as a segment of its own.
+const MAX_STILL: f64 = 60.0;
+/// An overlay comes in this much before its first word and stays this much after its last.
+const OVERLAY_LEAD: f64 = 0.1;
+const OVERLAY_TAIL: f64 = 0.3;
+/// Overlays shorter than this flash by.
+const SHORT_OVERLAY: f64 = 1.5;
 
 fn default_true() -> bool {
     true
@@ -68,9 +75,12 @@ pub struct CutPlan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aspect: Option<String>,
     /// Hide jump cuts: at each cut inside a speech segment the picture alternates
-    /// between the full frame and a slight zoom-in.
+    /// between the full frame and a slight zoom-in. Segments can turn it on or off.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub punch_in: bool,
+    /// Pictures shown over the sound of the cut (a screenshot, a chart, B-roll).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overlays: Vec<OverlaySpec>,
 }
 
 /// How much a punched-in span is zoomed.
@@ -131,8 +141,63 @@ pub struct SegmentSpec {
     pub focus_x: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focus_y: Option<f64>,
+    /// Zoom into the picture (1 = none, up to 3), around `focus_x` / `focus_y`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
+    /// Punch-ins for this segment, over the plan's `punch_in`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub punch_in: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+}
+
+/// A picture shown instead of the cut's own while its sound goes on: an image, or the
+/// picture of another take from `start`. It covers the output from the first kept word
+/// of `from` (or `starts_with`) to the last of `to` (or `ends_with`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlaySpec {
+    /// The take whose picture is shown.
+    pub take: String,
+    /// Where a video take's picture starts, take seconds (default 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<f64>,
+    pub from: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starts_with: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ends_with: Option<String>,
+    /// `fit` (default: the whole picture) or `fill` (cropped to the frame).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_y: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// An overlay placed on the output timeline.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Overlay {
+    /// Position in the plan's `overlays` (`O1` is 0).
+    pub index: usize,
+    pub take: String,
+    /// Take time of the first frame shown (0 for an image).
+    pub source_start: f64,
+    pub out_start: f64,
+    pub out_end: f64,
+    pub framing: Framing,
+    pub label: Option<String>,
+    /// The take and what it is, for the receipt.
+    pub source: String,
+    /// The words it covers.
+    pub text: String,
 }
 
 /// A stretch of a take that goes into the output, in output order.
@@ -170,6 +235,8 @@ pub struct ResolvedCut {
     pub plan: CutPlan,
     pub spans: Vec<Span>,
     pub segments: Vec<SegmentInfo>,
+    #[serde(default)]
+    pub overlays: Vec<Overlay>,
     pub duration: f64,
     pub fillers_removed: usize,
     pub pauses_tightened: usize,
@@ -208,6 +275,13 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
         if session.take(&take)?.media.video.is_some() {
             session.load_activity(&take)?;
         }
+    }
+    for (index, overlay) in plan.overlays.iter().enumerate() {
+        let take = take_of(&overlay.from).ok_or_else(|| {
+            EditError::invalid(format!("O{}: from “{}” is not a phrase id like A12", index + 1, overlay.from))
+        })?;
+        session.load_view(&take)?;
+        session.take(&overlay.take)?;
     }
 
     let mut spans: Vec<Span> = Vec::new();
@@ -314,10 +388,17 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
             let (Some(from), Some(to)) = (segment.start, segment.end) else {
                 return Err(EditError::invalid(format!("{name}: a time segment needs take, start and end")));
             };
+            // An image is held for as long as the segment asks.
+            let still = session.take(&take)?.still();
+            let duration = if still { MAX_STILL } else { duration };
             if !(from >= 0.0 && to > from && from < duration) {
-                return Err(EditError::invalid(format!(
-                    "{name}: {from:.2}-{to:.2} is not a range inside take {take} (0-{duration:.2})"
-                )));
+                return Err(EditError::invalid(if still {
+                    format!(
+                        "{name}: {take} is an image: hold it with start 0 and end the seconds to show it (up to {MAX_STILL:.0})"
+                    )
+                } else {
+                    format!("{name}: {from:.2}-{to:.2} is not a range inside take {take} (0-{duration:.2})")
+                }));
             }
             let to = to.min(duration);
             let start = snap(envelope, from, (from - SNAP).max(0.0), from + SNAP);
@@ -344,6 +425,7 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
                 && end - start <= shots::MAX_SPAN
                 && text.is_empty()
                 && source.media.video.is_some()
+                && !still
             {
                 let still: Vec<String> = shots::shots(&source.path, start, end)?
                     .iter()
@@ -362,7 +444,11 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
             infos.push(SegmentInfo {
                 label: segment.label.clone(),
                 take: take.clone(),
-                source: format!("{take} {start:.2}-{end:.2}"),
+                source: if still {
+                    format!("{take} (image) for {:.2} s", end - start)
+                } else {
+                    format!("{take} {start:.2}-{end:.2}")
+                },
                 out_start: 0.0,
                 out_end: 0.0,
                 text: if text.is_empty() { "(no speech)".to_owned() } else { text },
@@ -378,9 +464,7 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
         span.framing = framing(&plan.segments[span.segment])?;
     }
     let mut spans = tidy(spans);
-    if plan.punch_in {
-        punch_in(&mut spans, &plan.segments);
-    }
+    punch_in(&mut spans, &plan.segments, plan.punch_in);
     let mut out = 0.0;
     let mut segment_times: HashMap<usize, (f64, f64)> = HashMap::new();
     for span in &spans {
@@ -404,6 +488,7 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
         }
     }
     let duration = out;
+    let overlays = overlays(session, plan, &spans, duration, &mut warnings)?;
     match (plan.target_min_seconds, plan.target_max_seconds) {
         (Some(min), _) if duration < min - 0.5 => warnings.push(format!(
             "the cut is {} long, {:.1} s shorter than the {} minimum",
@@ -424,6 +509,7 @@ pub fn resolve(session: &mut Session, plan: &CutPlan) -> Result<ResolvedCut> {
         plan: plan.clone(),
         spans,
         segments: infos,
+        overlays,
         duration,
         fillers_removed,
         pauses_tightened,
@@ -442,8 +528,134 @@ fn framing(segment: &SegmentSpec) -> Result<Framing> {
         fill,
         focus_x: segment.focus_x.unwrap_or(0.5).clamp(0.0, 1.0),
         focus_y: segment.focus_y.unwrap_or(0.5).clamp(0.0, 1.0),
-        zoom: 1.0,
+        zoom: segment.zoom.unwrap_or(1.0).clamp(1.0, 3.0),
     })
+}
+
+/// Places the plan's overlays on the output timeline of `spans`, in output order.
+fn overlays(
+    session: &Session,
+    plan: &CutPlan,
+    spans: &[Span],
+    duration: f64,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Overlay>> {
+    let mut starts = Vec::with_capacity(spans.len());
+    let mut out = 0.0;
+    for span in spans {
+        starts.push(out);
+        out += span.duration();
+    }
+    // Where a moment of a take plays in the output, if the cut keeps it.
+    let out_time = |take: &str, time: f64| {
+        spans
+            .iter()
+            .zip(&starts)
+            .find(|(span, _)| span.take == take && time >= span.start - 0.001 && time <= span.end + 0.001)
+            .map(|(span, start)| start + (time - span.start).clamp(0.0, span.duration()))
+    };
+    let mut placed = Vec::new();
+    for (index, spec) in plan.overlays.iter().enumerate() {
+        let name = format!("O{}", index + 1);
+        let anchor = take_of(&spec.from).expect("checked while loading");
+        if let Some(to) = &spec.to
+            && take_of(to).as_deref() != Some(anchor.as_str())
+        {
+            return Err(EditError::invalid(format!(
+                "{name}: from {} and to {to} must be phrases of the same take",
+                spec.from
+            )));
+        }
+        let view = session.view(&anchor).expect("loaded");
+        let words = SegmentSpec {
+            from: Some(spec.from.clone()),
+            to: spec.to.clone(),
+            starts_with: spec.starts_with.clone(),
+            ends_with: spec.ends_with.clone(),
+            ..SegmentSpec::default()
+        };
+        let selection = select(view, &words, true, &name)?;
+        let all = &view.transcript.words;
+        let (first, last) = (&all[selection.kept[0]], &all[*selection.kept.last().expect("non-empty")]);
+        let not_kept = |word: &Word| {
+            EditError::invalid(format!(
+                "{name} is anchored on “{}” at {:.2} in take {anchor}, which the cut does not keep",
+                word.text, word.start
+            ))
+        };
+        let start = out_time(&anchor, first.start).ok_or_else(|| not_kept(first))?;
+        let end = out_time(&anchor, last.end).ok_or_else(|| not_kept(last))?;
+        let (out_start, out_end) = ((start - OVERLAY_LEAD).max(0.0), (end + OVERLAY_TAIL).min(duration));
+        if out_end - out_start < 0.2 {
+            return Err(EditError::invalid(format!("{name}: its last word comes before its first in the cut")));
+        }
+
+        let source = session.take(&spec.take)?;
+        if source.media.video.is_none() {
+            return Err(EditError::invalid(format!("{name}: take {} has no picture", source.id)));
+        }
+        let source_start = if source.still() { 0.0 } else { spec.start.unwrap_or(0.0) };
+        if !source.still() {
+            if !(0.0..source.media.duration).contains(&source_start) {
+                return Err(EditError::invalid(format!(
+                    "{name}: start {source_start:.2} is not inside take {} (0-{:.2})",
+                    source.id, source.media.duration
+                )));
+            }
+            if source_start + (out_end - out_start) > source.media.duration + 0.05 {
+                warnings.push(format!(
+                    "{name} shows {} from {source_start:.2} for {:.1} s, but the take ends at {:.2}: its last frame holds",
+                    source.id,
+                    out_end - out_start,
+                    source.media.duration
+                ));
+            }
+        }
+        let fill = match spec.framing.as_deref().map(str::trim) {
+            None | Some("") | Some("fit") => false,
+            Some("fill") => true,
+            Some(other) => return Err(EditError::invalid(format!("{name}: framing “{other}”: use fit or fill"))),
+        };
+        if out_end - out_start < SHORT_OVERLAY {
+            warnings.push(format!("{name} is on screen for only {:.1} s", out_end - out_start));
+        }
+        placed.push(Overlay {
+            index,
+            take: source.id.clone(),
+            source_start,
+            out_start,
+            out_end,
+            framing: Framing {
+                fill,
+                focus_x: spec.focus_x.unwrap_or(0.5).clamp(0.0, 1.0),
+                focus_y: spec.focus_y.unwrap_or(0.5).clamp(0.0, 1.0),
+                zoom: spec.zoom.unwrap_or(1.0).clamp(1.0, 3.0),
+            },
+            label: spec.label.clone(),
+            source: if source.still() {
+                format!("{} ({}, image)", source.id, source.file)
+            } else {
+                format!("{} ({}) from {source_start:.2}", source.id, source.file)
+            },
+            text: view.text(selection.range.0..selection.range.1 + 1),
+        });
+    }
+    placed.sort_by(|a, b| a.out_start.total_cmp(&b.out_start));
+    // Overlays on neighbouring words meet: the earlier one ends where the next begins.
+    for index in 1..placed.len() {
+        let (previous, next) = (&placed[index - 1], &placed[index]);
+        if next.out_start < previous.out_end {
+            if previous.out_end - next.out_start > OVERLAY_LEAD + OVERLAY_TAIL + 0.05 {
+                return Err(EditError::invalid(format!(
+                    "O{} and O{} cover the same words: one picture at a time",
+                    previous.index + 1,
+                    next.index + 1
+                )));
+            }
+            placed[index - 1].out_end = placed[index].out_start;
+        }
+    }
+    Ok(placed)
 }
 
 /// Width over height of an aspect like `9:16`.
@@ -572,20 +784,25 @@ fn snap(envelope: &crate::audio::Envelope, preferred: f64, low: f64, high: f64) 
     envelope.quietest((preferred - SNAP).max(low), (preferred + SNAP).min(high), preferred)
 }
 
-/// Alternates full frame and zoomed-in at every jump cut: a cut between two spans of
-/// the same take where the picture would jump. A new take or a time segment starts
-/// at full frame again.
-fn punch_in(spans: &mut [Span], segments: &[SegmentSpec]) {
+/// Alternates the segment's framing and a zoom-in at every jump cut in speech segments
+/// with punch-ins (`default`, or the segment's own choice): a cut between two spans of
+/// the same take where the picture would jump. A new take or a time segment starts at
+/// the segment's framing again.
+fn punch_in(spans: &mut [Span], segments: &[SegmentSpec], default: bool) {
     let mut zoomed = false;
     for index in 0..spans.len() {
-        let speech = segments.get(spans[index].segment).is_some_and(|spec| spec.from.is_some());
+        let on = segments
+            .get(spans[index].segment)
+            .is_some_and(|spec| spec.from.is_some() && spec.punch_in.unwrap_or(default));
         let jump = index > 0 && {
             let previous = &spans[index - 1];
             let previous_speech = segments.get(previous.segment).is_some_and(|spec| spec.from.is_some());
             previous_speech && previous.take == spans[index].take && (spans[index].start - previous.end).abs() > 0.005
         };
-        zoomed = speech && jump && !zoomed;
-        spans[index].framing.zoom = if zoomed { PUNCH_IN } else { 1.0 };
+        zoomed = on && jump && !zoomed;
+        if zoomed {
+            spans[index].framing.zoom = (spans[index].framing.zoom * PUNCH_IN).min(3.0);
+        }
     }
 }
 
@@ -765,6 +982,22 @@ impl ResolvedCut {
                 excerpt(&segment.text, 8)
             );
         }
+        if !self.overlays.is_empty() {
+            out.push_str("Overlays (output time, picture shown, over the words):\n");
+            for overlay in &self.overlays {
+                let label = overlay.label.as_deref().map(|label| format!(" [{label}]")).unwrap_or_default();
+                let _ = writeln!(
+                    out,
+                    "O{:<3} {}-{}  {}{}  “{}”",
+                    overlay.index + 1,
+                    clock(overlay.out_start),
+                    clock(overlay.out_end),
+                    overlay.source,
+                    label,
+                    excerpt(&overlay.text, 6)
+                );
+            }
+        }
         out
     }
 }
@@ -811,9 +1044,28 @@ mod tests {
             span(70.0, 71.0, 2),
             span(72.0, 73.0, 2),
         ];
-        punch_in(&mut spans, &segments);
+        punch_in(&mut spans, &segments, true);
         let zooms: Vec<f64> = spans.iter().map(|span| span.framing.zoom).collect();
         assert_eq!(zooms, [1.0, PUNCH_IN, 1.0, 1.0, 1.0, PUNCH_IN]);
+    }
+
+    #[test]
+    fn segments_turn_punch_ins_off_and_keep_their_own_zoom() {
+        let face = SegmentSpec { from: Some("A1".into()), ..SegmentSpec::default() };
+        let screen = SegmentSpec { from: Some("A5".into()), punch_in: Some(false), ..SegmentSpec::default() };
+        let segments = vec![face, screen];
+        let span = |start: f64, end: f64, segment: usize, zoom: f64| Span {
+            take: "A".into(),
+            start,
+            end,
+            segment,
+            framing: Framing { zoom, ..Framing::default() },
+        };
+        let mut spans =
+            vec![span(0.0, 1.0, 0, 1.0), span(2.0, 3.0, 0, 1.0), span(10.0, 11.0, 1, 1.5), span(12.0, 13.0, 1, 1.5)];
+        punch_in(&mut spans, &segments, true);
+        let zooms: Vec<f64> = spans.iter().map(|span| span.framing.zoom).collect();
+        assert_eq!(zooms, [1.0, PUNCH_IN, 1.5, 1.5]);
     }
 
     #[test]

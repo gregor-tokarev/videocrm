@@ -475,7 +475,8 @@ impl AiSettings {
                 .field(
                     SettingsField::new("Editing tools", |this: &mut Self, _, cx| this.render_harness(cx)).description(
                         "What the agent edits with. Rushes’ built-in tools need only ffmpeg and an ElevenLabs key; \
-                         the video-use skill is installed separately.",
+                         the video-use skill is installed separately. Applies to new edits: an edit keeps the tools \
+                         it started with.",
                     ),
                 )
                 .field(

@@ -28,6 +28,9 @@ pub struct VideoInfo {
     pub rotation: i32,
     /// PQ or HLG transfer: needs tone mapping for SDR output.
     pub hdr: bool,
+    /// A still image: one picture, shown for as long as the plan asks.
+    #[serde(default)]
+    pub still: bool,
 }
 
 impl VideoInfo {
@@ -62,6 +65,40 @@ pub fn probe(path: &Path) -> Result<MediaInfo> {
         ],
     )?;
     parse(&json).ok_or_else(|| EditError::invalid(format!("ffprobe could not read {}", path.display())))
+}
+
+/// What a still image holds: its size, no length and no sound.
+pub fn probe_image(path: &Path) -> Result<MediaInfo> {
+    let ffprobe = tool::ffprobe()?;
+    let json = tool::run(
+        &ffprobe,
+        [
+            "-v".as_ref(),
+            "error".as_ref(),
+            "-print_format".as_ref(),
+            "json".as_ref(),
+            "-show_streams".as_ref(),
+            path.as_os_str(),
+        ],
+    )?;
+    parse_image(&json).ok_or_else(|| EditError::invalid(format!("ffprobe could not read the image {}", path.display())))
+}
+
+fn parse_image(json: &[u8]) -> Option<MediaInfo> {
+    let probe: Probe = serde_json::from_slice(json).ok()?;
+    let stream = probe.streams.into_iter().find(|stream| stream.codec_type.as_deref() == Some("video"))?;
+    let (width, height) = (stream.width?, stream.height?);
+    let video = VideoInfo {
+        codec: stream.codec_name.unwrap_or_default(),
+        width,
+        height,
+        rate: Rational::new(1, 1),
+        r_rate: Rational::new(1, 1),
+        rotation: 0,
+        hdr: false,
+        still: true,
+    };
+    Some(MediaInfo { duration: 0.0, video: Some(video), audio: Vec::new() })
 }
 
 #[derive(Deserialize)]
@@ -136,6 +173,7 @@ fn parse(json: &[u8]) -> Option<MediaInfo> {
                     r_rate,
                     rotation,
                     hdr: matches!(stream.color_transfer.as_deref(), Some("smpte2084" | "arib-std-b67")),
+                    still: false,
                 });
             }
             Some("audio") => {
@@ -175,6 +213,17 @@ mod tests {
         assert_eq!(info.audio.len(), 2);
         assert_eq!(info.audio[1].index, 1);
         assert_eq!(info.duration, 12.5);
+    }
+
+    #[test]
+    fn an_image_is_a_still_without_length_or_sound() {
+        let json = br#"{"streams":[{"codec_type":"video","codec_name":"png","width":1600,"height":900}]}"#;
+        let info = parse_image(json).unwrap();
+        let video = info.video.unwrap();
+        assert!(video.still);
+        assert_eq!((video.width, video.height), (1600, 900));
+        assert_eq!(info.duration, 0.0);
+        assert!(info.audio.is_empty());
     }
 
     #[test]

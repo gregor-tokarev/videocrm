@@ -9,6 +9,7 @@ mod activity;
 mod audio;
 mod check;
 mod error;
+mod import;
 mod look;
 pub mod mcp;
 pub mod plan;
@@ -26,7 +27,7 @@ pub mod transcript;
 
 pub use error::{EditError, Result};
 pub use plan::{CutPlan, ResolvedCut, SegmentSpec};
-pub use project::{FOOTAGE_EXTENSIONS, Project};
+pub use project::{FOOTAGE_EXTENSIONS, IMAGE_EXTENSIONS, Project};
 pub use rational::Rational;
 pub use session::Session;
 pub use tool::find as find_tool;

@@ -1321,6 +1321,7 @@ fn an_edit_waiting_for_approval_stands_out(cx: &mut TestAppContext) {
         brief: String::new(),
         footage_dir: app._media.path().to_path_buf(),
         session_id: None,
+        harness: None,
         summary: None,
         output: None,
         error: None,

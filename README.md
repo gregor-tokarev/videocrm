@@ -20,7 +20,9 @@
   every line.
 - **Edit with AI**: hand your raw takes and script to the built-in AI editor. It drops
   retakes, false starts, fillers and dead air, keeps the screen demos viewers need to see, and
-  shows you its plan before it cuts. Long-form videos or vertical Shorts with captions.
+  shows you its plan before it cuts. Ask for changes in plain words: it can bring in a clip
+  from your older video or a screenshot and show it over what you say. Long-form videos or
+  vertical Shorts with captions.
 - **Publish** with AI help: have the agent write the title, description and tags from your
   script and what you actually said on camera, and have Codex draw a few thumbnails to
   pick from.

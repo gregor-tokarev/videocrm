@@ -28,6 +28,7 @@ fn run(video_id: VideoId, status: RunStatus, age_minutes: i64) -> PipelineRun {
         brief: "Cut the fillers".into(),
         footage_dir: "/media/video/footage".into(),
         session_id: None,
+        harness: None,
         summary: None,
         output: None,
         error: None,
@@ -750,6 +751,7 @@ fn runs_crud_and_event_log() {
     newer.output = Some("/media/b/footage/edit/final.mp4".into());
     newer.error = None;
     newer.cost_usd = Some(0.42);
+    newer.harness = Some(EditHarness::VideoUse);
     store.update_run(&mut newer).unwrap();
     assert!(newer.updated_at > before);
     assert_eq!(store.get_run(newer.id).unwrap(), Some(newer.clone()));

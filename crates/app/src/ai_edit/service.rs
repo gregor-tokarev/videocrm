@@ -465,6 +465,7 @@ impl PipelineService {
             brief,
             footage_dir,
             session_id: None,
+            harness: Some(self.state.read(cx).settings().pipeline.harness),
             summary: None,
             output: None,
             error: None,
@@ -623,7 +624,13 @@ impl PipelineService {
         self.load_timeline(id, cx);
         let (phase, text) = (started.phase, started.text.clone());
         let run = self.run(id).ok_or(RunError::RunNotFound)?.clone();
-        let settings = self.state.read(cx).settings().pipeline.clone();
+        let mut settings = self.state.read(cx).settings().pipeline.clone();
+        // A run keeps editing with what it started with: its agent session knows those
+        // tools. A run from before that was kept takes the setting now and keeps it.
+        match run.harness {
+            Some(harness) => settings.harness = harness,
+            None => self.update_run(id, cx, |run| run.harness = Some(settings.harness)),
+        }
         let harness = match settings.harness {
             EditHarness::Rushes => Harness::Rushes { tools: tool_server() },
             EditHarness::VideoUse => Harness::VideoUse {
@@ -1370,6 +1377,7 @@ mod tests {
             brief: String::new(),
             footage_dir: PathBuf::new(),
             session_id: None,
+            harness: None,
             summary: None,
             output: None,
             error: None,

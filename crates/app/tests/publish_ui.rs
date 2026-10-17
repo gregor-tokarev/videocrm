@@ -887,6 +887,7 @@ fn ai_edit_keeps_the_upload_file_while_the_video_uploads(cx: &mut TestAppContext
         brief: "Cut it tight.".into(),
         footage_dir: workspace.dir.path().join("footage"),
         session_id: Some("session".into()),
+        harness: None,
         summary: Some("Cut to 8:12.".into()),
         output: Some(cut.clone()),
         error: None,

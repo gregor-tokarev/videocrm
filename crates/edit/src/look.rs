@@ -140,3 +140,27 @@ pub fn sheet_at(file: &Path, start: f64, end: f64, times: &[f64], scratch: &Path
     let _ = fs::remove_file(&png);
     Ok(bytes)
 }
+
+/// An image, scaled to fit 960x540, as PNG.
+pub fn image(file: &Path, scratch: &Path) -> Result<Vec<u8>> {
+    let png = scratch.join(format!("image-{}.png", std::process::id()));
+    tool::run(
+        &tool::ffmpeg()?,
+        [
+            "-nostdin".as_ref(),
+            "-y".as_ref(),
+            "-v".as_ref(),
+            "error".as_ref(),
+            "-i".as_ref(),
+            file.as_os_str(),
+            "-vf".as_ref(),
+            "scale=960:540:force_original_aspect_ratio=decrease".as_ref(),
+            "-frames:v".as_ref(),
+            "1".as_ref(),
+            png.as_os_str(),
+        ],
+    )?;
+    let bytes = fs::read(&png)?;
+    let _ = fs::remove_file(&png);
+    Ok(bytes)
+}

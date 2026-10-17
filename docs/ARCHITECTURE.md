@@ -148,17 +148,18 @@ database's write lock for seconds. The UI thread never waits for it:
 
 ## edit (`rushes-edit`)
 
-Rushes' own editing harness: tools the agent edits with (inventory, transcribe,
-read_transcript, phrase_words, silences, look, plan_cut, render, check), an MCP server for
-them, and the agent's instructions. The agent picks phrases by id; the crate does all
+Rushes' own editing harness: tools the agent edits with (inventory, add_footage, transcribe,
+read_transcript, phrase_words, silences, shots, look, plan_cut, render, check), an MCP server
+for them, and the agent's instructions. The agent picks phrases by id; the crate does all
 timing, renders frame- and sample-exact, and measures the result. The app binary serves it
 as `rushes edit-tools --footage <dir>`. See [editing-harness.md](editing-harness.md).
 
 ## pipeline (`rushes-pipeline`)
 
 Drives a headless coding agent (`claude -p --output-format stream-json --verbose`) that
-edits with Rushes' tools (`Harness::Rushes`, over MCP, no shell) or with
-[video-use](https://github.com/browser-use/video-use) (`Harness::VideoUse`). An edit
+edits with Rushes' tools (`Harness::Rushes`, over MCP, next to its shell) or with
+[video-use](https://github.com/browser-use/video-use) (`Harness::VideoUse`); a run keeps the
+one it started with (`PipelineRun::harness`). An edit
 proposes a strategy and waits for approval, so a run has two phases:
 
 1. **Plan** — agent inventories footage, transcribes, proposes a strategy, stops.

@@ -139,6 +139,27 @@ model reading transcripts, not a person watching the videos. The size of the edi
 margins may change on other material; the sync, cost and time differences come from how
 the two harnesses are built.
 
+### Changes that need material from outside the footage
+
+A creator's round of changes after an edit of the 9:20 clip: put in one line from their older
+video right after they mention it, show a benchmark screenshot while they say the benchmarks
+stopped improving, and no zoom on screen content. Two versions, one run each, after the
+agent got its shell and the web (`add_footage`, overlays, per-segment zoom):
+
+- the files already in `edit/downloads/` (as an earlier session left them): the agent added
+  both, transcribed the old video, picked the one sentence that makes the point (7 s), put
+  the screenshot over the two lines and turned punch-ins off on the screen content and the
+  insert. 3.5 min, $0.84.
+- nothing prepared: it downloaded the old video by its YouTube link with `add_footage`, found
+  the same sentence, looked up published MMLU scores on the web, drew a chart of them, added
+  it and showed it over the passage. 5.4 min, $1.07.
+
+The first version showed the old video's line 8 dB quieter than the speech around it (that
+recording is 15 dB quieter at the source); takes' speech levels are matched since. The
+plain edits before the changes measured as before or better (more of the demo kept: 97%
+against 75%); they cost $0.42 and $0.49 against $0.29, since the shell and web tools add to
+every turn's prompt.
+
 ## Two more harnesses: kinocut and RankCut (October 2026)
 
 The same tasks, footage, evaluator and judge, 2 runs per task each:

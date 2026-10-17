@@ -30,7 +30,7 @@ use crate::model::{
     UploadStatus, Video, VideoFormat, VideoId, VideoRow, VideoStatus, ViewId, ViewKind,
 };
 use crate::sample;
-use crate::settings::AppSettings;
+use crate::settings::{AppSettings, EditHarness};
 use crate::templates::{TemplateKind, script_template};
 
 /// Settings key holding [`AppSettings`].
@@ -717,7 +717,7 @@ type Migration = fn(&Transaction<'_>) -> rusqlite::Result<()>;
 
 /// Applied in order; after `MIGRATIONS[i]` the database is at `user_version = i + 1`.
 /// Append new migrations, never edit released ones.
-const MIGRATIONS: &[Migration] = &[migration_1, migration_2, migration_3];
+const MIGRATIONS: &[Migration] = &[migration_1, migration_2, migration_3, migration_4];
 
 fn migrate(conn: &mut Connection) -> StoreResult<()> {
     while pending_migration(conn)?.is_some() {
@@ -847,6 +847,11 @@ fn migration_2(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 /// Upload jobs remember the YouTube account they go to (`UploadJob::channel`).
 fn migration_3(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     tx.execute_batch("ALTER TABLE uploads ADD COLUMN channel TEXT;")
+}
+
+/// Edit runs remember what the agent edits with (`PipelineRun::harness`).
+fn migration_4(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch("ALTER TABLE pipeline_runs ADD COLUMN harness TEXT;  -- EditHarness")
 }
 
 /// "All videos" (table) and "Board" (kanban by status).
@@ -1095,13 +1100,13 @@ fn upsert_view(conn: &Connection, view: &DatabaseView) -> rusqlite::Result<()> {
     Ok(())
 }
 
-const RUN_COLUMNS: &str =
-    "id, video_id, status, brief, footage_dir, session_id, summary, output, error, cost_usd, created_at, updated_at";
+const RUN_COLUMNS: &str = "id, video_id, status, brief, footage_dir, session_id, summary, output, error, cost_usd, \
+                           created_at, updated_at, harness";
 const INSERT_RUN: &str = "INSERT INTO pipeline_runs (id, video_id, status, brief, footage_dir, session_id, summary, \
-                          output, error, cost_usd, created_at, updated_at) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+                          output, error, cost_usd, created_at, updated_at, harness) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 const UPDATE_RUN: &str = "UPDATE pipeline_runs SET status = ?3, brief = ?4, footage_dir = ?5, session_id = ?6, \
-                          summary = ?7, output = ?8, error = ?9, cost_usd = ?10, updated_at = ?12 \
+                          summary = ?7, output = ?8, error = ?9, cost_usd = ?10, updated_at = ?12, harness = ?13 \
                           WHERE id = ?1";
 
 /// Runs `INSERT_RUN` or `UPDATE_RUN`, which share parameter numbering.
@@ -1119,6 +1124,7 @@ fn write_run(conn: &Connection, sql: &str, run: &PipelineRun) -> rusqlite::Resul
         run.cost_usd,
         run.created_at,
         run.updated_at,
+        run.harness,
     ])
 }
 
@@ -1136,6 +1142,7 @@ fn run_from_row(row: &Row<'_>) -> rusqlite::Result<PipelineRun> {
         cost_usd: row.get("cost_usd")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+        harness: row.get("harness")?,
     })
 }
 
@@ -1260,6 +1267,7 @@ sql_as_serde_string!(
     DocumentKind,
     ViewKind,
     RunStatus,
+    EditHarness,
 );
 
 #[cfg(test)]

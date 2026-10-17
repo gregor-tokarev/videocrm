@@ -1249,6 +1249,7 @@ mod tests {
             brief: "Cut it tight.".into(),
             footage_dir: "/media/desk/footage".into(),
             session_id: None,
+            harness: None,
             summary: None,
             output: None,
             error: None,

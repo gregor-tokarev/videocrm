@@ -28,6 +28,12 @@ impl Session {
     /// Loads the transcript view of `take` (it must be transcribed).
     pub fn load_view(&mut self, take: &str) -> Result<&TakeView> {
         let take = self.project.take(take)?.clone();
+        if !take.has_sound() {
+            return Err(EditError::invalid(format!(
+                "take {} ({}) has no sound, so no phrases: use it in a time segment or as an overlay",
+                take.id, take.file
+            )));
+        }
         if !self.views.contains_key(&take.id) {
             let transcript = transcribe::cached(&self.project, &take)?.ok_or_else(|| {
                 EditError::invalid(format!(
@@ -47,8 +53,13 @@ impl Session {
     pub fn load_envelope(&mut self, take: &str) -> Result<()> {
         let take = self.project.take(take)?.clone();
         if !self.envelopes.contains_key(&take.id) {
-            let wav = audio::speech_audio(&self.project, &take)?;
-            self.envelopes.insert(take.id.clone(), Envelope::of(&audio::read_wav(&wav)?));
+            // Without sound there is nothing to snap to: cuts stay where they are asked.
+            let envelope = if take.has_sound() {
+                Envelope::of(&audio::read_wav(&audio::speech_audio(&self.project, &take)?)?)
+            } else {
+                Envelope { db: Vec::new() }
+            };
+            self.envelopes.insert(take.id.clone(), envelope);
         }
         Ok(())
     }

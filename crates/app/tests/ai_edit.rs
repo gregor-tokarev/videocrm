@@ -28,7 +28,7 @@ use rushes::ai_edit::{
 use rushes::route::{Route, VideoTab};
 use rushes::state::{AppEvent, AppState, SAVE_RETRY_DELAY};
 use rushes::ui::zoom::apply_zoom;
-use rushes_core::settings::Zoom;
+use rushes_core::settings::{EditHarness, Zoom};
 use rushes_core::{Block, DocumentKind, NewVideo, PipelineRun, RunId, RunStatus, Store, VideoId, VideoStatus};
 use rushes_pipeline::{AgentEvent, AgentProcess};
 use tempfile::TempDir;
@@ -143,6 +143,12 @@ impl Fixture {
 
     fn upload_file(&self, cx: &mut TestAppContext) -> Option<PathBuf> {
         cx.read(|cx| self.state.read(cx).video(self.video).expect("video").publish.file.clone())
+    }
+
+    fn set_harness(&self, cx: &mut TestAppContext, harness: EditHarness) {
+        cx.update(|cx| {
+            self.state.update(cx, |state, cx| state.update_settings(cx, |settings| settings.pipeline.harness = harness))
+        });
     }
 
     /// Where the agent renders.
@@ -428,6 +434,39 @@ fn plan_revise_approve_renders_and_prepares_the_upload(cx: &mut TestAppContext) 
 }
 
 #[gpui_kit::test]
+fn an_edit_keeps_the_tools_it_started_with(cx: &mut TestAppContext) {
+    if !tools_available() {
+        return;
+    }
+    let argv_dir = tempfile::tempdir().unwrap();
+    let argv_file = argv_dir.path().join("argv.json");
+    let fx = Fixture::new(cx, &[("FAKE_AGENT_ARGV_FILE", argv_file.to_str().unwrap())]);
+    let argv = || -> Vec<String> { serde_json::from_slice(&fs::read(&argv_file).unwrap()).unwrap() };
+    let uses_skill = |argv: &[String]| {
+        argv.iter().any(|arg| arg.starts_with("--add-dir=")) && !argv.iter().any(|arg| arg.starts_with("--mcp-config"))
+    };
+
+    fx.set_harness(cx, EditHarness::VideoUse);
+    let id = fx.start(cx, false);
+    let planned = fx.wait_for_status(cx, id, RunStatus::AwaitingApproval);
+    assert_eq!(planned.harness, Some(EditHarness::VideoUse));
+    assert!(uses_skill(&argv()), "{:?}", argv());
+
+    // The setting changes mid-edit: this edit resumes its session with the skill.
+    fx.set_harness(cx, EditHarness::Rushes);
+    cx.update(|cx| fx.service.update(cx, |service, cx| service.approve(id, None, cx))).expect("approved");
+    let done = fx.wait_for_status(cx, id, RunStatus::Succeeded);
+    assert_eq!(done.harness, Some(EditHarness::VideoUse));
+    assert!(uses_skill(&argv()), "{:?}", argv());
+
+    // A new edit takes the setting.
+    let next = fx.start(cx, false);
+    let planned = fx.wait_for_status(cx, next, RunStatus::AwaitingApproval);
+    assert_eq!(planned.harness, Some(EditHarness::Rushes));
+    assert!(argv().iter().any(|arg| arg.starts_with("--mcp-config=")), "{:?}", argv());
+}
+
+#[gpui_kit::test]
 fn auto_approve_renders_and_feedback_renders_again(cx: &mut TestAppContext) {
     if !tools_available() {
         return;
@@ -505,6 +544,7 @@ fn a_cut_left_at_the_shared_path_is_kept_before_the_next_render(cx: &mut TestApp
         brief: String::new(),
         footage_dir: fx.footage.clone(),
         session_id: Some("old".into()),
+        harness: None,
         summary: Some("Rendered.".into()),
         output: Some(fx.final_cut()),
         error: None,
@@ -668,6 +708,7 @@ fn startup_marks_interrupted_runs_failed_and_they_can_continue(cx: &mut TestAppC
         brief: String::new(),
         footage_dir: PathBuf::from("/nonexistent"),
         session_id: session.map(str::to_owned),
+        harness: None,
         summary: None,
         output: None,
         error: None,
@@ -731,6 +772,7 @@ fn video_rows_show_interrupted_runs_as_failed_from_the_start(cx: &mut TestAppCon
         brief: String::new(),
         footage_dir: PathBuf::from("/nonexistent"),
         session_id: Some("s".into()),
+        harness: None,
         summary: None,
         output: None,
         error: None,
@@ -1083,6 +1125,7 @@ fn startup_stops_an_agent_a_crashed_session_left_running(cx: &mut TestAppContext
         brief: String::new(),
         footage_dir: PathBuf::from("/nonexistent"),
         session_id: Some("s".into()),
+        harness: None,
         summary: None,
         output,
         error: None,
@@ -1868,6 +1911,7 @@ fn a_long_activity_log_lays_out_only_the_rows_in_view(cx: &mut TestAppContext) {
         brief: String::new(),
         footage_dir: fx.footage.clone(),
         session_id: Some("s".into()),
+        harness: None,
         summary: Some("Rendered.".into()),
         output: None,
         error: None,
@@ -2006,6 +2050,7 @@ fn a_short_activity_log_takes_only_the_room_it_needs(cx: &mut TestAppContext) {
         brief: String::new(),
         footage_dir: fx.footage.clone(),
         session_id: None,
+        harness: None,
         summary: None,
         output: None,
         error: Some("The agent stopped.".into()),
@@ -2129,6 +2174,7 @@ fn the_activity_log_follows_the_zoom(cx: &mut TestAppContext) {
         brief: String::new(),
         footage_dir: fx.footage.clone(),
         session_id: None,
+        harness: None,
         summary: None,
         output: None,
         error: Some("The agent stopped.".into()),

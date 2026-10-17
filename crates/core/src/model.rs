@@ -11,6 +11,8 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::settings::EditHarness;
+
 macro_rules! id_type {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -707,6 +709,10 @@ pub struct PipelineRun {
     pub footage_dir: PathBuf,
     /// Agent session id so follow-ups resume the same conversation.
     pub session_id: Option<String>,
+    /// What the agent edits with. Fixed when the run starts, so follow-ups resume the
+    /// session with the tools it began with; `None` for runs from before it was kept.
+    #[serde(default)]
+    pub harness: Option<EditHarness>,
     /// Latest strategy / summary text from the agent (Markdown).
     pub summary: Option<String>,
     pub output: Option<PathBuf>,

@@ -6,8 +6,8 @@
 //! does everything in one go for creators who pre-approve.
 //!
 //! The agent edits with one of two [`Harness`]es: Rushes' own editing tools, served
-//! to it over MCP, or the video-use skill (a prompt plus Python helpers it runs
-//! through its shell).
+//! to it over MCP next to its shell, or the video-use skill (a prompt plus Python
+//! helpers it runs through its shell).
 
 use std::fs;
 use std::io;
@@ -49,7 +49,8 @@ pub enum Phase {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Harness {
     /// Rushes' editing tools (`rushes-edit`), served over MCP by `tools`. The agent
-    /// gets no shell: it works only through the tools and the file tools.
+    /// cuts and renders only through them, and has its shell, file and web tools to
+    /// find and fetch material.
     Rushes { tools: ToolServer },
     /// The video-use skill: the folder holding its `SKILL.md` and `helpers/`.
     VideoUse { skill_dir: PathBuf },
@@ -73,8 +74,10 @@ pub struct RunContext {
     pub session_id: Option<String>,
 }
 
-/// Built-in tools the agent keeps with Rushes' tools: reading and noting, no shell.
-const RUSHES_BUILTIN_TOOLS: [&str; 6] = ["Read", "Write", "Edit", "Glob", "Grep", "TodoWrite"];
+/// Built-in tools the agent keeps with Rushes' tools: the shell and the web, to find,
+/// fetch and make material; files; a todo list.
+const RUSHES_BUILTIN_TOOLS: [&str; 9] =
+    ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "TodoWrite", "WebFetch", "WebSearch"];
 /// How long one tool call may take (a final render of a long video takes minutes).
 const TOOL_TIMEOUT_MS: &str = "3600000";
 

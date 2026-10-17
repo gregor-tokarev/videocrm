@@ -79,7 +79,7 @@ fn cache_path(project: &Project, take: &Take) -> Result<PathBuf> {
 
 /// The keyframe activity of `take`, computed once and cached.
 pub fn activity(project: &Project, take: &Take) -> Result<Activity> {
-    if take.media.video.is_none() {
+    if take.media.video.is_none() || take.still() {
         return Ok(Activity::default());
     }
     let path = cache_path(project, take)?;
